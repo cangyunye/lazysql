@@ -122,7 +122,8 @@ jobs:
           LDFLAGS="-s -w -X main.version=${VERSION} -X main.distribution=release -X main.telemetryEndpoint=${TELEMETRY_ENDPOINT}"
           for arch in amd64 arm64; do
             GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" -o "dist/lazysql-darwin-${arch}" .
-            upx --best "dist/lazysql-darwin-${arch}"
+            # UPX 5.x requires explicit opt-in for Mach-O (notarization caveats)
+            upx --best --force-macos "dist/lazysql-darwin-${arch}"
             # UPX invalidates the linker's ad-hoc signature; re-sign so dyld loads it
             codesign -f -s - "dist/lazysql-darwin-${arch}"
           done

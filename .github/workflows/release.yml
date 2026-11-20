@@ -17,6 +17,9 @@ on:
   push:
     tags:
       - 'v*'
+  # manual dispatch: `gh workflow run release.yml --ref <tag>` re-runs the
+  # pipeline for an existing tag if the push event was lost
+  workflow_dispatch:
 
 permissions:
   contents: write

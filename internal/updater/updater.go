@@ -3,6 +3,7 @@ package updater
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -23,7 +24,7 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-const releasesURL = "https://api.github.com/repos/jorgerojas26/lazysql/releases/latest"
+const releasesURL = "https://api.github.com/repos/cangyunye/lazysql/releases/latest"
 const maxArchive = 100 << 20
 
 // Release contains only the metadata needed to install an official release.
@@ -156,8 +157,8 @@ func (r Release) asset(name string) (string, error) {
 			continue
 		}
 		u, err := url.Parse(a.URL)
-		if err != nil || u.Scheme != "https" || u.Host != "github.com" || u.User != nil || u.Path != "/jorgerojas26/lazysql/releases/download/"+r.Tag+"/"+name {
-			return "", errors.New("release asset is not hosted in the official repository")
+		if err != nil || u.Scheme != "https" || u.Host != "github.com" || u.User != nil || u.Path != "/cangyunye/lazysql/releases/download/"+r.Tag+"/"+name {
+			return "", errors.New("release asset is not hosted in the release repository")
 		}
 		return a.URL, nil
 	}
@@ -240,6 +241,14 @@ func verifyChecksum(data, checksums []byte, name string) error {
 	return errors.New("release checksum is missing; executable was not changed")
 }
 
+// isExecutableEntry accepts the bare binary name at the archive root.
+func isExecutableEntry(name string) bool {
+	return name == "lazysql" || name == "lazysql.exe"
+}
+
+// replace stages the new executable next to the old one and swaps it in with
+// one rename. Release archives hold the bare binary at their root: a tar.gz
+// everywhere, a zip on Windows.
 func replace(ctx context.Context, target string, archive []byte) error {
 	info, err := os.Lstat(target)
 	if err != nil {
@@ -248,47 +257,79 @@ func replace(ctx context.Context, target string, archive []byte) error {
 	if !info.Mode().IsRegular() {
 		return errors.New("executable is not a regular file")
 	}
-	gz, err := gzip.NewReader(bytes.NewReader(archive))
+
+	var entry io.Reader
+	var size int64
+	if bytes.HasPrefix(archive, []byte("PK\x03\x04")) {
+		zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+		if err != nil {
+			return err
+		}
+		for _, f := range zr.File {
+			if !isExecutableEntry(f.Name) {
+				continue
+			}
+			if f.UncompressedSize64 <= 0 || f.UncompressedSize64 > maxArchive {
+				return errors.New("invalid release executable")
+			}
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = rc.Close() }()
+			entry, size = rc, int64(f.UncompressedSize64)
+			break
+		}
+	} else {
+		gz, err := gzip.NewReader(bytes.NewReader(archive))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = gz.Close() }()
+		tr := tar.NewReader(gz)
+		for {
+			header, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			if !isExecutableEntry(header.Name) {
+				continue
+			}
+			if header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > maxArchive {
+				return errors.New("invalid release executable")
+			}
+			entry, size = tr, header.Size
+			break
+		}
+	}
+
+	if entry == nil {
+		return errors.New("archive does not contain lazysql")
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".lazysql-update-*")
 	if err != nil {
+		return fmt.Errorf("cannot write installation directory; upgrade using your original installation method: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	if _, err := io.CopyN(tmp, entry, size); err != nil {
 		return err
 	}
-	defer func() { _ = gz.Close() }()
-	tr := tar.NewReader(gz)
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			return errors.New("archive does not contain lazysql")
-		}
-		if err != nil {
-			return err
-		}
-		if header.Name != "lazysql" {
-			continue
-		}
-		if header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > maxArchive {
-			return errors.New("invalid release executable")
-		}
-		tmp, err := os.CreateTemp(filepath.Dir(target), ".lazysql-update-*")
-		if err != nil {
-			return fmt.Errorf("cannot write installation directory; upgrade using your original installation method: %w", err)
-		}
-		defer os.Remove(tmp.Name())
-		defer tmp.Close()
-		if _, err := io.CopyN(tmp, tr, header.Size); err != nil {
-			return err
-		}
-		if err := tmp.Chmod(info.Mode().Perm()); err != nil {
-			return err
-		}
-		if err := tmp.Sync(); err != nil {
-			return err
-		}
-		if err := tmp.Close(); err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		return os.Rename(tmp.Name(), target)
+	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
+		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), target)
 }

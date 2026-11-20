@@ -2,6 +2,7 @@ package updater
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -130,15 +131,19 @@ func TestArchiveName(t *testing.T) {
 
 func TestAssetOrigin(t *testing.T) {
 	for _, address := range []string{
-		"http://github.com/jorgerojas26/lazysql/releases/download/v1.0.0/file",
+		"http://github.com/cangyunye/lazysql/releases/download/v1.0.0/file",
 		"https://evil.example/file",
 		"https://github.com/another/repo/releases/download/v1.0.0/file",
-		"https://github.com/jorgerojas26/lazysql/releases/download/v0.9.0/file",
+		"https://github.com/cangyunye/lazysql/releases/download/v0.9.0/file",
 	} {
 		r := Release{Tag: "v1.0.0", Assets: []Asset{{Name: "file", URL: address}}}
 		if _, err := r.asset("file"); err == nil {
 			t.Errorf("accepted %s", address)
 		}
+	}
+	r := Release{Tag: "v1.0.0", Assets: []Asset{{Name: "file", URL: "https://github.com/cangyunye/lazysql/releases/download/v1.0.0/file"}}}
+	if _, err := r.asset("file"); err != nil {
+		t.Errorf("rejected the release repository asset: %v", err)
 	}
 }
 
@@ -183,6 +188,24 @@ func testArchive(t *testing.T, name string, kind byte) []byte {
 	return b.Bytes()
 }
 
+// testZipArchive builds a Windows-style release zip with one entry.
+func testZipArchive(t *testing.T, name string) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	zw := zip.NewWriter(&b)
+	w, err := zw.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("new executable")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
 func TestReplace(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows uses package-manager guidance")
@@ -193,6 +216,9 @@ func TestReplace(t *testing.T) {
 		canceled, success bool
 	}{
 		{"valid", testArchive(t, "lazysql", tar.TypeReg), false, true},
+		{"windows-exe-entry", testArchive(t, "lazysql.exe", tar.TypeReg), false, true},
+		{"zip-valid", testZipArchive(t, "lazysql.exe"), false, true},
+		{"zip-wrong-name", testZipArchive(t, "other.exe"), false, false},
 		{"traversal", testArchive(t, "../lazysql", tar.TypeReg), false, false},
 		{"symlink", testArchive(t, "lazysql", tar.TypeSymlink), false, false},
 		{"corrupt", []byte("invalid gzip"), false, false},
@@ -268,7 +294,7 @@ func TestInstall(t *testing.T) {
 				cloned.URL.Host = strings.TrimPrefix(server.URL, "http://")
 				return transport.RoundTrip(cloned)
 			})}}
-			base := "https://github.com/jorgerojas26/lazysql/releases/download/v1.2.0/"
+			base := "https://github.com/cangyunye/lazysql/releases/download/v1.2.0/"
 			r := Release{Tag: "v1.2.0", Assets: []Asset{{Name: name, URL: base + name}, {Name: "lazysql_1.2.0_checksums.txt", URL: base + "lazysql_1.2.0_checksums.txt"}}}
 			err := client.Install(context.Background(), r, target)
 			if (err == nil) != valid {

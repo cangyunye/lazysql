@@ -1,38 +1,176 @@
-name: goreleaser
+# Fork release pipeline (cangyunye/lazysql). This fork tracks the upstream
+# repository read-only, so releases are published here.
+#
+# Asset naming mirrors .goreleaser.yaml exactly: the in-app updater
+# (internal/updater) verifies self-update archives against
+# lazysql_<version>_checksums.txt and the lazysql_{Os}_{Arch} archive names,
+# so this pipeline must keep those conventions.
+#
+# Targets: windows/amd64, linux/amd64, linux/arm64, darwin/amd64, darwin/arm64.
+# All builds are CGO_ENABLED=0 pure-Go static binaries — no libc dependency,
+# which covers glibc 2.28 (RHEL8/Debian10 era) and anything newer, musl included.
+# Binaries are UPX-compressed (--best) after the build.
+
+name: release
 
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
 
 permissions:
   contents: write
 
 jobs:
-  goreleaser:
+  build-linux-windows:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install UPX
+        run: |
+          curl -fsSL -o /tmp/upx.tar.xz https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-amd64_linux.tar.xz
+          tar -xJf /tmp/upx.tar.xz -C /tmp
+          sudo install /tmp/upx-4.2.4-amd64_linux/upx /usr/local/bin/upx
+          upx --version | head -1
+
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          TELEMETRY_ENDPOINT: ${{ vars.TELEMETRY_ENDPOINT }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BIN="lazysql"
+          if [ "$GOOS" = "windows" ]; then BIN="lazysql.exe"; fi
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.distribution=release -X main.telemetryEndpoint=${TELEMETRY_ENDPOINT}" -o "dist/${BIN}" .
+
+      - name: Smoke test before UPX
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: ./dist/lazysql --version
+
+      - name: UPX compress
+        run: |
+          BIN="dist/lazysql"
+          if [ -f dist/lazysql.exe ]; then BIN="dist/lazysql.exe"; fi
+          upx --best "$BIN"
+
+      - name: Smoke test after UPX
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: ./dist/lazysql --version
+
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p staging
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cp dist/lazysql.exe staging/lazysql.exe
+            (cd staging && zip "../dist/lazysql_Windows_x86_64.zip" lazysql.exe)
+          else
+            cp dist/lazysql staging/lazysql
+            ARCH="x86_64"
+            if [ "${{ matrix.goarch }}" = "arm64" ]; then ARCH="arm64"; fi
+            tar -czf "dist/lazysql_Linux_${ARCH}.tar.gz" -C staging lazysql
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/lazysql_*
+          if-no-files-found: error
+
+  build-macos:
+    name: build darwin (amd64 + arm64)
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install UPX
+        run: brew install upx
+
+      - name: Build, compress, re-sign
+        env:
+          CGO_ENABLED: '0'
+          TELEMETRY_ENDPOINT: ${{ vars.TELEMETRY_ENDPOINT }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          LDFLAGS="-s -w -X main.version=${VERSION} -X main.distribution=release -X main.telemetryEndpoint=${TELEMETRY_ENDPOINT}"
+          for arch in amd64 arm64; do
+            GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" -o "dist/lazysql-darwin-${arch}" .
+            upx --best "dist/lazysql-darwin-${arch}"
+            # UPX invalidates the linker's ad-hoc signature; re-sign so dyld loads it
+            codesign -f -s - "dist/lazysql-darwin-${arch}"
+          done
+
+      - name: Smoke test arm64 with uncompressed fallback
+        env:
+          CGO_ENABLED: '0'
+          TELEMETRY_ENDPOINT: ${{ vars.TELEMETRY_ENDPOINT }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! ./dist/lazysql-darwin-arm64 --version; then
+            echo "UPX-compressed darwin/arm64 failed to run; shipping uncompressed"
+            GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.distribution=release -X main.telemetryEndpoint=${TELEMETRY_ENDPOINT}" -o "dist/lazysql-darwin-arm64" .
+            ./dist/lazysql-darwin-arm64 --version
+          fi
+
+      - name: Package
+        run: |
+          mkdir -p staging
+          cp dist/lazysql-darwin-arm64 staging/lazysql
+          tar -czf dist/lazysql_Darwin_arm64.tar.gz -C staging lazysql
+          cp dist/lazysql-darwin-amd64 staging/lazysql
+          tar -czf dist/lazysql_Darwin_x86_64.tar.gz -C staging lazysql
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-darwin
+          path: dist/lazysql_*
+          if-no-files-found: error
+
+  release:
+    needs: [build-linux-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
-      -
-        name: Checkout
-        uses: actions/checkout@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
-      -
-        name: Set up Go
-        uses: actions/setup-go@v5
+          pattern: pkg-*
+          merge-multiple: true
+          path: dist
 
-      -
-        name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+      - name: Generate checksums
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd dist
+          sha256sum lazysql_Windows_x86_64.zip lazysql_Linux_x86_64.tar.gz lazysql_Linux_arm64.tar.gz lazysql_Darwin_x86_64.tar.gz lazysql_Darwin_arm64.tar.gz > "lazysql_${VERSION}_checksums.txt"
+          cat "lazysql_${VERSION}_checksums.txt"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
         with:
-          # either 'goreleaser' (default) or 'goreleaser-pro'
-          distribution: goreleaser
-          # 'latest', 'nightly', or a semver
-          version: '~> v2'
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-          # Public collector URL; unset keeps telemetry entirely disabled.
-          TELEMETRY_ENDPOINT: ${{ vars.TELEMETRY_ENDPOINT }}
-          # Your GoReleaser Pro key, if you are using the 'goreleaser-pro' distribution
-          # GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+          files: dist/*
+          generate_release_notes: true

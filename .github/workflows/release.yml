@@ -100,7 +100,7 @@ jobs:
 
   build-macos:
     name: build darwin (amd64 + arm64)
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4

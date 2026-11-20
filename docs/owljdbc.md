@@ -77,8 +77,9 @@ Oracle 族说明：元数据与编辑全部按树上的精确名（owner/table �
 
 ## 构建与 fork 说明
 
-- 仓库以本地 replace 引入 owljdbc：`go.mod` 中 `replace github.com/cangyunye/owljdbc => ../owljdbc`。fork/CI 需保持同级目录检出 owljdbc，或把 owljdbc 发布后改回版本号。
-- 本次为接入做的 owljdbc 上游改动（向后兼容）：`Config.JvmOpts` 透传 JVM 选项（`openAgent` 把它插在 `-cp` 之前）。
+- 依赖已发布的 `github.com/cangyunye/owljdbc v0.1.3`（module proxy 拉取，go.sum 完整性校验），干净克隆即可构建，无需兄弟目录。
+- 本地联动开发：在仓库根放一个 gitignored 的 `go.work`（`use ( . ../owljdbc )`），owljdbc 改动即时生效；上游同步合并不受影响。
+- 本次为接入做的 owljdbc 上游改动（v0.1.3，向后兼容）：`Config.JvmOpts` 透传 JVM 选项（`openAgent` 把它插在 `-cp` 之前）。
 
 ## 验证
 

@@ -110,10 +110,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install UPX
-        run: brew install upx
-
-      - name: Build, compress, re-sign
+      # NOTE: darwin ships UNCOMPRESSED. UPX 5.x packs Mach-O only with
+      # --force-macos, and the packed arm64 binary verifiably fails to run on
+      # macOS (verified 2026-11-20: smoke test crashed, uncompressed rerun
+      # passed) — UPX rewrites __TEXT pages, which Go's darwin runtime cannot
+      # tolerate. Windows/Linux keep UPX compression.
+      - name: Build
         env:
           CGO_ENABLED: '0'
           TELEMETRY_ENDPOINT: ${{ vars.TELEMETRY_ENDPOINT }}
@@ -122,23 +124,10 @@ jobs:
           LDFLAGS="-s -w -X main.version=${VERSION} -X main.distribution=release -X main.telemetryEndpoint=${TELEMETRY_ENDPOINT}"
           for arch in amd64 arm64; do
             GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" -o "dist/lazysql-darwin-${arch}" .
-            # UPX 5.x requires explicit opt-in for Mach-O (notarization caveats)
-            upx --best --force-macos "dist/lazysql-darwin-${arch}"
-            # UPX invalidates the linker's ad-hoc signature; re-sign so dyld loads it
-            codesign -f -s - "dist/lazysql-darwin-${arch}"
           done
 
-      - name: Smoke test arm64 with uncompressed fallback
-        env:
-          CGO_ENABLED: '0'
-          TELEMETRY_ENDPOINT: ${{ vars.TELEMETRY_ENDPOINT }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if ! ./dist/lazysql-darwin-arm64 --version; then
-            echo "UPX-compressed darwin/arm64 failed to run; shipping uncompressed"
-            GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.distribution=release -X main.telemetryEndpoint=${TELEMETRY_ENDPOINT}" -o "dist/lazysql-darwin-arm64" .
-            ./dist/lazysql-darwin-arm64 --version
-          fi
+      - name: Smoke test
+        run: ./dist/lazysql-darwin-arm64 --version
 
       - name: Package
         run: |

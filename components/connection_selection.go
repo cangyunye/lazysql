@@ -255,9 +255,11 @@ func (cs *ConnectionSelection) Connect(connection models.Connection) *tview.Appl
 		newDBDriver = &drivers.MSSQL{PoolConfig: poolConfig}
 	case drivers.DriverClickHouse:
 		newDBDriver = &drivers.ClickHouse{PoolConfig: poolConfig}
+	case drivers.DriverOwlJDBC:
+		newDBDriver = &drivers.OwlJDBC{PoolConfig: poolConfig}
 	default:
 		usage.ConnectionFailed(telemetry.Driver)
-		errorMsg := fmt.Sprintf("Unsupported database provider: '%s'. Valid providers are: mysql, postgres, sqlite3, sqlserver, clickhouse", connection.Provider)
+		errorMsg := fmt.Sprintf("Unsupported database provider: '%s'. Valid providers are: mysql, postgres, sqlite3, sqlserver, clickhouse, owljdbc", connection.Provider)
 		cs.StatusText.SetText(errorMsg).SetTextStyle(tcell.StyleDefault.Foreground(app.Styles.ErrorColor).Background(app.Styles.PrimitiveBackgroundColor))
 		return App.Draw()
 	}

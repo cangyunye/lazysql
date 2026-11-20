@@ -78,6 +78,10 @@ type Connection struct {
 	DBName    string `toml:",omitempty"`
 	URLParams string `toml:",omitempty"`
 
+	// DBType selects the owljdbc catalog profile for owljdbc connections
+	// (opengauss, oceanbase-mysql, oceanbase-oracle, mysql, postgres, oracle, ...).
+	DBType string `toml:"db_type,omitempty"`
+
 	ReadOnly bool `toml:",omitempty"`
 
 	// Pool limits are optional per-connection overrides. A nil value inherits

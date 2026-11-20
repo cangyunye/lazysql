@@ -539,19 +539,36 @@ func readConfigTable(configFile string) (map[string]any, error) {
 
 // parseConfigURL automatically generates the URL from the connection struct
 // if the URL is empty. It is useful for handling usernames and passwords with
-// special characters. NOTE: Only MSSQL is supported for now!
+// special characters. NOTE: Only MSSQL and owljdbc are supported for now!
 func parseConfigURL(conn *models.Connection) string {
 	if conn.URL != "" {
 		return conn.URL
 	}
 
-	// Only MSSQL is supported for now.
-	if conn.Provider != drivers.DriverMSSQL {
+	// Only MSSQL and owljdbc are supported for now.
+	if conn.Provider != drivers.DriverMSSQL && conn.Provider != drivers.DriverOwlJDBC {
 		return conn.URL
 	}
 
 	user := url.QueryEscape(conn.Username)
 	pass := url.QueryEscape(conn.Password)
+
+	// owljdbc field form: the dbType parameter selects the owljdbc profile, so
+	// OceanBase tenant usernames (root@sys) and special-character passwords
+	// need no manual escaping.
+	if conn.Provider == drivers.DriverOwlJDBC {
+		return fmt.Sprintf(
+			"%s://%s:%s@%s:%s/%s?dbType=%s%s",
+			conn.Provider,
+			user,
+			pass,
+			conn.Hostname,
+			conn.Port,
+			conn.DBName,
+			url.QueryEscape(conn.DBType),
+			conn.URLParams,
+		)
+	}
 
 	return fmt.Sprintf(
 		"%s://%s:%s@%s:%s?database=%s%s",

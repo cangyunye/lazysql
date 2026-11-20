@@ -188,6 +188,19 @@ max_idle_connections = 8
 
 The `ReadOnly` field (optional, defaults to `false`) can be set to `true` to enable read-only mode for a connection. When enabled, all mutation queries (INSERT, UPDATE, DELETE, DROP, etc.) will be blocked.
 
+### owljdbc: openGauss, OceanBase, Oracle and other JDBC backends
+
+The `owljdbc` provider reaches databases that have no native Go driver by launching a JVM sidecar (`owl-agent.jar`) that loads the vendor JDBC jar. Supported types include `opengauss`, `oceanbase-mysql`, `oceanbase-oracle`, `mysql`, `postgres` and `oracle`:
+
+```toml
+[[database]]
+Name = 'openGauss'
+Provider = 'owljdbc'
+URL = 'opengauss://ogadmin:${password}@172.20.214.44:6432/og_pg?jarsDir=jars&jvmOpts=-Xmx256m'
+```
+
+URL schemes `opengauss://` (`og://`), `oceanbase://` (`ob://`) and `owljdbc://` (with `?dbType=`) are supported; OceanBase tenants put the tenant in the username (`root@sys`), so use the `user=`/`password=` query parameters for those. Driver jars are resolved from the `jarsDir` parameter, `OWLJDBC_JARS_DIR`/`OWLJDBC_AGENT_JAR`, or a `jars` directory in the working directory. See [docs/owljdbc.md](docs/owljdbc.md) for the full URL syntax, parameters and dialect notes.
+
 Database entries may override the connection pool with `max_open_connections` and `max_idle_connections`. Omitted values inherit the application settings; an explicit `0` uses LazySQL's default of `8`. Invalid combinations (for example, idle connections greater than open connections) are rejected. SQLite always uses one open and one idle connection (`1/1`) to preserve in-memory database behavior, ignoring the general pool settings.
 
 The `DBName` field (optional) controls how the sidebar tree is populated when a connection is opened:

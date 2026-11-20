@@ -11,4 +11,5 @@ const (
 	DriverSqlite     string = "sqlite3"
 	DriverMSSQL      string = "sqlserver"
 	DriverClickHouse string = "clickhouse"
+	DriverOwlJDBC    string = "owljdbc"
 )

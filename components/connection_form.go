@@ -205,6 +205,8 @@ func (form *ConnectionForm) testConnection(connectionString string) {
 		db = &drivers.MSSQL{PoolConfig: poolConfig}
 	case drivers.DriverClickHouse:
 		db = &drivers.ClickHouse{PoolConfig: poolConfig}
+	case drivers.DriverOwlJDBC:
+		db = &drivers.OwlJDBC{PoolConfig: poolConfig}
 	default:
 		usage.ConnectionFailed(telemetry.Driver)
 		return

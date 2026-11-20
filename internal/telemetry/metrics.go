@@ -45,7 +45,7 @@ func validFeature(feature Feature) bool {
 // connection metadata. Unknown providers collapse to one bounded bucket.
 func Engine(provider string) string {
 	switch provider {
-	case "postgres", "mysql", "sqlite3", "sqlserver", "clickhouse":
+	case "postgres", "mysql", "sqlite3", "sqlserver", "clickhouse", "owljdbc":
 		return provider
 	}
 	return "other"

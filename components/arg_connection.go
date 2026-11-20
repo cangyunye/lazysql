@@ -46,6 +46,8 @@ func InitFromArg(connectionString string, readOnly bool) error {
 		newDBDriver = &drivers.MSSQL{PoolConfig: poolConfig}
 	case drivers.DriverClickHouse:
 		newDBDriver = &drivers.ClickHouse{PoolConfig: poolConfig}
+	case drivers.DriverOwlJDBC:
+		newDBDriver = &drivers.OwlJDBC{PoolConfig: poolConfig}
 	default:
 		return fmt.Errorf("could not handle database driver %s", connection.Provider)
 	}

@@ -1,0 +1,14 @@
+$ go test ./drivers/ ./components/ -count=1
+ok  	github.com/jorgerojas26/lazysql/drivers	1.573s
+ok  	github.com/jorgerojas26/lazysql/components	3.263s
+
+$ LAZYSQL_OWLJDBC_E2E='owljdbc://system:REDACTED@localhost:1521/ORCLCDB?dbType=oracle&jarsDir=...&jvmOpts=-Xmx256m;opengauss://ogadmin:...@172.20.214.44:6432/og_pg?jarsDir=...&jvmOpts=-Xmx256m' go test ./drivers/ -run TestOwlJdbcE2E -count=1
+ok  	github.com/jorgerojas26/lazysql/drivers	9.223s
+
+要点输出（-v）：
+  oracle_19c: family=oracle current_database=SYSTEM, databases(41), probe table AQ$_INTERNET_AGENTS
+              columns=[COLUMN_NAME DATA_TYPE NULLABLE DATA_DEFAULT comment], records rows=5 has_next=true, PK=[AGENT_NAME], estimate=6
+  og_pg:      family=postgres current_database=og_pg, databases(5), probe table owlmig.OWL_PARITY
+              records rows=5 has_next=true, estimate=0, probe SELECT 1 -> [[?column?] [1]]
+  EditRoundTrip 两库均: edit round trip OK: map[1:cell-updated 2:pending-updated 3:row-3]
+  （OB 214.44:2881 当日停服 → SKIP: Connection refused，skip 关键词覆盖生效）
